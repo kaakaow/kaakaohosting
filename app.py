@@ -1,6 +1,6 @@
 from flask import Flask, request, redirect, url_for, session
 import os, sqlite3
-from flask import Markup
+
 
 app = Flask(__name__)
 app.secret_key = "kaakaow_secret_key"
