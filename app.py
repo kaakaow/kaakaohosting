@@ -1,93 +1,14 @@
-
-from flask import Flask, render_template, request, redirect, url_for, session
+from flask import Flask, request, redirect, url_for, session
 import os, sqlite3
+from flask import Markup
 
-# --- ASETUKSET ---
 app = Flask(__name__)
 app.secret_key = "kaakaow_secret_key"
-
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-UPLOAD_FOLDER = os.path.join(BASE_DIR, "static", "uploads")
-TEMPLATES_DIR = os.path.join(BASE_DIR, "templates")
-DB_PATH = os.path.join(BASE_DIR, "database.db")
-
-# --- KANSIOT ---
+UPLOAD_FOLDER = "static/uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-os.makedirs(TEMPLATES_DIR, exist_ok=True)
 
-# --- AUTOMAATTINEN TEMPLATES-LUONTI ---
-login_html = os.path.join(TEMPLATES_DIR, "login.html")
-panel_html = os.path.join(TEMPLATES_DIR, "panel.html")
-
-if not os.path.exists(login_html):
-    with open(login_html, "w") as f:
-        f.write("""<!DOCTYPE html>
-<html>
-<head>
-    <title>Kaakaow Hosting - Kirjaudu</title>
-    <style>
-        body { font-family: sans-serif; text-align: center; margin-top: 100px; background: #f5f6fa; }
-        form { background: white; display: inline-block; padding: 30px; border-radius: 15px; box-shadow: 0 0 10px #ddd; }
-        input { display: block; margin: 10px auto; padding: 10px; width: 80%; }
-        button { padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 8px; cursor: pointer; }
-        button:hover { background: #0056b3; }
-        .error { color: red; }
-    </style>
-</head>
-<body>
-    <h2>Kaakaow Hosting</h2>
-    <form method="POST">
-        <input type="text" name="username" placeholder="Käyttäjätunnus" required>
-        <input type="password" name="password" placeholder="Salasana" required>
-        <button type="submit">Kirjaudu</button>
-        {% if error %}<p class="error">{{ error }}</p>{% endif %}
-    </form>
-</body>
-</html>""")
-
-if not os.path.exists(panel_html):
-    with open(panel_html, "w") as f:
-        f.write("""<!DOCTYPE html>
-<html>
-<head>
-    <title>Kaakaow Hosting - Paneeli</title>
-    <style>
-        body { font-family: sans-serif; background: #eef2f7; text-align: center; margin: 0; }
-        header { background: #007bff; color: white; padding: 15px; font-size: 20px; }
-        main { margin-top: 30px; }
-        form { background: white; display: inline-block; padding: 20px; border-radius: 15px; box-shadow: 0 0 10px #ddd; }
-        input, button { margin: 8px; padding: 10px; }
-        table { margin: 30px auto; background: white; border-collapse: collapse; }
-        td, th { border: 1px solid #ccc; padding: 8px 15px; }
-        th { background: #f1f1f1; }
-        .logout { float: right; color: white; text-decoration: none; }
-    </style>
-</head>
-<body>
-    <header>
-        Kaakaow Hosting - Paneeli
-        <a href="/logout" class="logout">Kirjaudu ulos</a>
-    </header>
-    <main>
-        <form method="POST" enctype="multipart/form-data">
-            <input type="text" name="servername" placeholder="Projektin nimi" required>
-            <input type="file" name="file" required>
-            <button type="submit">Lataa & Julkaise</button>
-        </form>
-        <h3>Omat sivut</h3>
-        <table>
-            <tr><th>Nimi</th><th>Tiedosto</th></tr>
-            {% for s in servers %}
-            <tr><td>{{ s['name'] }}</td><td>{{ s['path'] }}</td></tr>
-            {% endfor %}
-        </table>
-    </main>
-</body>
-</html>""")
-
-# --- TIETOKANTA ---
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect("database.db")
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -96,15 +17,50 @@ with get_db() as db:
     db.execute("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, username TEXT UNIQUE, password TEXT)")
     db.execute("CREATE TABLE IF NOT EXISTS servers (id INTEGER PRIMARY KEY, user_id INTEGER, name TEXT, path TEXT)")
 
-# --- ROUTET ---
 @app.route("/")
 def home():
     if "user" in session:
         return redirect(url_for("panel"))
     return redirect(url_for("login"))
 
+# 🔹 Rekisteröityminen
+@app.route("/register", methods=["GET", "POST"])
+def register():
+    html = """
+    <h1>Rekisteröidy</h1>
+    <form method='POST'>
+        Käyttäjänimi:<br><input name='username'><br>
+        Salasana:<br><input name='password' type='password'><br>
+        <button type='submit'>Luo tili</button>
+    </form>
+    <p>Onko sinulla jo tili? <a href='/login'>Kirjaudu</a></p>
+    """
+    if request.method == "POST":
+        user = request.form["username"]
+        pw = request.form["password"]
+        if not user or not pw:
+            return html + "<p style='color:red;'>Täytä kaikki kentät!</p>"
+        with get_db() as db:
+            try:
+                db.execute("INSERT INTO users (username, password) VALUES (?, ?)", (user, pw))
+                db.commit()
+                return redirect(url_for("login"))
+            except sqlite3.IntegrityError:
+                return html + "<p style='color:red;'>Käyttäjänimi on jo käytössä.</p>"
+    return html
+
+# 🔹 Kirjautuminen
 @app.route("/login", methods=["GET", "POST"])
 def login():
+    html = """
+    <h1>Kirjaudu sisään</h1>
+    <form method='POST'>
+        Käyttäjänimi:<br><input name='username'><br>
+        Salasana:<br><input name='password' type='password'><br>
+        <button type='submit'>Kirjaudu</button>
+    </form>
+    <p>Ei tiliä? <a href='/register'>Luo uusi</a></p>
+    """
     if request.method == "POST":
         user = request.form["username"]
         pw = request.form["password"]
@@ -114,14 +70,15 @@ def login():
             session["user"] = res["id"]
             return redirect(url_for("panel"))
         else:
-            return render_template("login.html", error="Virheellinen tunnus tai salasana.")
-    return render_template("login.html")
+            return html + "<p style='color:red;'>Virheellinen tunnus tai salasana.</p>"
+    return html
 
 @app.route("/logout")
 def logout():
     session.pop("user", None)
     return redirect(url_for("login"))
 
+# 🔹 Paneeli
 @app.route("/panel", methods=["GET", "POST"])
 def panel():
     if "user" not in session:
@@ -141,8 +98,21 @@ def panel():
                 db.execute("INSERT INTO servers (user_id, name, path) VALUES (?, ?, ?)", (user_id, name, save_path))
             return redirect(url_for("panel"))
 
-    return render_template("panel.html", servers=servers)
+    server_list = "".join([f"<li>{s['name']} — {s['path']}</li>" for s in servers])
 
-# --- KÄYNNISTYS ---
+    html = f"""
+    <h1>KaakaoHosting - Hallintapaneeli</h1>
+    <p><a href='/logout'>Kirjaudu ulos</a></p>
+    <form method='POST' enctype='multipart/form-data'>
+        Palvelimen nimi:<br><input name='servername'><br>
+        Tiedosto:<br><input type='file' name='file'><br>
+        <button type='submit'>Tallenna</button>
+    </form>
+    <h2>Omat palvelimet</h2>
+    <ul>{server_list if server_list else "<i>Ei palvelimia</i>"}</ul>
+    """
+    return html
+
 if __name__ == "__main__":
-    app.run(debug=False, host="0.0.0.0", port=10000)
+    app.run(debug=True)
+
