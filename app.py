@@ -1,29 +1,37 @@
 from flask import Flask, request, redirect, url_for, session
 import os, sqlite3
 
-
 app = Flask(__name__)
 app.secret_key = "kaakaow_secret_key"
-UPLOAD_FOLDER = "static/uploads"
+
+# Asetukset
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+UPLOAD_FOLDER = os.path.join(BASE_DIR, "static", "uploads")
+DB_PATH = os.path.join(BASE_DIR, "database.db")
+
+# Luo kansio, jos ei ole
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
+# --- Tietokanta ---
 def get_db():
-    conn = sqlite3.connect("database.db")
+    conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
 
-# Luo tietokanta jos ei ole
+# Luo tietokanta, jos sitä ei vielä ole
 with get_db() as db:
     db.execute("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, username TEXT UNIQUE, password TEXT)")
     db.execute("CREATE TABLE IF NOT EXISTS servers (id INTEGER PRIMARY KEY, user_id INTEGER, name TEXT, path TEXT)")
+    db.commit()
 
+# --- Etusivu ---
 @app.route("/")
 def home():
     if "user" in session:
         return redirect(url_for("panel"))
     return redirect(url_for("login"))
 
-# 🔹 Rekisteröityminen
+# --- Rekisteröinti ---
 @app.route("/register", methods=["GET", "POST"])
 def register():
     html = """
@@ -36,8 +44,8 @@ def register():
     <p>Onko sinulla jo tili? <a href='/login'>Kirjaudu</a></p>
     """
     if request.method == "POST":
-        user = request.form["username"]
-        pw = request.form["password"]
+        user = request.form["username"].strip()
+        pw = request.form["password"].strip()
         if not user or not pw:
             return html + "<p style='color:red;'>Täytä kaikki kentät!</p>"
         with get_db() as db:
@@ -49,7 +57,7 @@ def register():
                 return html + "<p style='color:red;'>Käyttäjänimi on jo käytössä.</p>"
     return html
 
-# 🔹 Kirjautuminen
+# --- Kirjautuminen ---
 @app.route("/login", methods=["GET", "POST"])
 def login():
     html = """
@@ -73,12 +81,13 @@ def login():
             return html + "<p style='color:red;'>Virheellinen tunnus tai salasana.</p>"
     return html
 
+# --- Uloskirjautuminen ---
 @app.route("/logout")
 def logout():
     session.pop("user", None)
     return redirect(url_for("login"))
 
-# 🔹 Paneeli
+# --- Paneeli ---
 @app.route("/panel", methods=["GET", "POST"])
 def panel():
     if "user" not in session:
@@ -89,16 +98,17 @@ def panel():
         servers = db.execute("SELECT * FROM servers WHERE user_id=?", (user_id,)).fetchall()
 
     if request.method == "POST":
-        name = request.form["servername"]
+        name = request.form["servername"].strip()
         file = request.files["file"]
         if name and file:
             save_path = os.path.join(UPLOAD_FOLDER, file.filename)
             file.save(save_path)
             with get_db() as db:
                 db.execute("INSERT INTO servers (user_id, name, path) VALUES (?, ?, ?)", (user_id, name, save_path))
+                db.commit()
             return redirect(url_for("panel"))
 
-    server_list = "".join([f"<li>{s['name']} — {s['path']}</li>" for s in servers])
+    server_list = "".join([f"<li>{s['name']} — {os.path.basename(s['path'])}</li>" for s in servers])
 
     html = f"""
     <h1>KaakaoHosting - Hallintapaneeli</h1>
@@ -113,6 +123,10 @@ def panel():
     """
     return html
 
-if __name__ == "__main__":
-    app.run(debug=True)
 
+# --- Render tarvitsee tämän ---
+if __name__ != "__main__":
+    application = app  # Render fallback
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
